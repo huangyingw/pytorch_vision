@@ -1,0 +1,15 @@
+[remote "pytorch"]
+	url = git@github.com:pytorch/vision.git
+    fetch = +refs/heads/*:refs/remotes/pytorch/*
+[remote "origin"]
+    url = git@github.com:huangyingw/pytorch_vision.git
+    fetch = +refs/heads/*:refs/remotes/origin/*
+[push]
+    remote = origin
+[gsync]
+    remote = pytorch
+    branch = master
+[gdif]
+    ignore =examples/python/tensor_transforms.py
+    ignore =examples/python/video_api.py
+    ignore =test/sanity_checks.py
