@@ -8,7 +8,6 @@ import torch
 from torchvision.io import (
     _probe_video_from_file,
     _read_video_from_file,
-    _read_video_timestamps_from_file,
     read_video,
     read_video_timestamps,
 )
@@ -230,6 +229,7 @@ class VideoClips(object):
         Args:
             num_frames (int): number of frames for the clip
             step (int): distance between two clips
+            frame_rate (int, optional): The frame rate
         """
         self.num_frames = num_frames
         self.step = step

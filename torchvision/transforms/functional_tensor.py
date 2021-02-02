@@ -45,7 +45,7 @@ def _max_value(dtype: torch.dtype) -> float:
             max_value = next_value
             bits *= 2
         else:
-            return max_value.item()
+            break
     return max_value.item()
 
 
@@ -59,8 +59,7 @@ def convert_image_dtype(image: torch.Tensor, dtype: torch.dtype = torch.float) -
     if image.dtype == dtype:
         return image
 
-    # TODO: replace with image.dtype.is_floating_point when torchscript supports it
-    if torch.empty(0, dtype=image.dtype).is_floating_point():
+    if image.is_floating_point():
 
         # TODO: replace with dtype.is_floating_point when torchscript supports it
         if torch.tensor(0, dtype=dtype).is_floating_point():
@@ -180,7 +179,9 @@ def adjust_hue(img: Tensor, hue_factor: float) -> Tensor:
 
     _assert_image_tensor(img)
 
-    _assert_channels(img, [3])
+    _assert_channels(img, [1, 3])
+    if _get_image_num_channels(img) == 1:  # Match PIL behaviour
+        return img
 
     orig_dtype = img.dtype
     if img.dtype == torch.uint8:
