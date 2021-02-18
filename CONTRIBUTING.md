@@ -33,7 +33,7 @@ clear and has sufficient instructions to be able to reproduce the issue.
 ### Install PyTorch Nightly 
 
 ```bash
-conda install pytorch -c pytorch-nightly
+conda install pytorch -c pytorch-nightly -c conda-forge
 # or with pip (see https://pytorch.org/get-started/locally/)
 # pip install numpy
 # pip install --pre torch -f https://download.pytorch.org/whl/nightly/cu102/torch_nightly.html
@@ -91,7 +91,7 @@ If you have modified the code by adding a new feature or a bug-fix, please add u
 test: 
 ```bash
 pytest test/<test-module.py> -vvv -k <test_myfunc>
-# e.g. pytest test/test_transforms.py -vvv -k test_crop
+# e.g. pytest test/test_transforms.py -vvv -k test_center_crop
 ```
 
 If you would like to run all tests:

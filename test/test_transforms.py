@@ -1,3 +1,4 @@
+import itertools
 import os
 import torch
 import torchvision.transforms as transforms
@@ -29,7 +30,7 @@ GRACE_HOPPER = get_file_path_2(
 
 class Tester(unittest.TestCase):
 
-    def test_crop(self):
+    def test_center_crop(self):
         height = random.randint(10, 32) * 2
         width = random.randint(10, 32) * 2
         oheight = random.randint(5, (height - 2) / 2) * 2
@@ -69,6 +70,64 @@ class Tester(unittest.TestCase):
                            "height: {} width: {} oheight: {} owdith: {}".format(height, width, oheight, owidth))
         self.assertGreater(sum2, sum1,
                            "height: {} width: {} oheight: {} owdith: {}".format(height, width, oheight, owidth))
+
+    def test_center_crop_2(self):
+        """ Tests when center crop size is larger than image size, along any dimension"""
+        even_image_size = (random.randint(10, 32) * 2, random.randint(10, 32) * 2)
+        odd_image_size = (even_image_size[0] + 1, even_image_size[1] + 1)
+
+        # Since height is independent of width, we can ignore images with odd height and even width and vice-versa.
+        input_image_sizes = [even_image_size, odd_image_size]
+
+        # Get different crop sizes
+        delta = random.choice((1, 3, 5))
+        crop_size_delta = [-2 * delta, -delta, 0, delta, 2 * delta]
+        crop_size_params = itertools.product(input_image_sizes, crop_size_delta, crop_size_delta)
+
+        for (input_image_size, delta_height, delta_width) in crop_size_params:
+            img = torch.ones(3, *input_image_size)
+            crop_size = (input_image_size[0] + delta_height, input_image_size[1] + delta_width)
+
+            # Test both transforms, one with PIL input and one with tensor
+            output_pil = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.CenterCrop(crop_size),
+                transforms.ToTensor()],
+            )(img)
+            self.assertEqual(output_pil.size()[1:3], crop_size,
+                             "image_size: {} crop_size: {}".format(input_image_size, crop_size))
+
+            output_tensor = transforms.CenterCrop(crop_size)(img)
+            self.assertEqual(output_tensor.size()[1:3], crop_size,
+                             "image_size: {} crop_size: {}".format(input_image_size, crop_size))
+
+            # Ensure output for PIL and Tensor are equal
+            self.assertEqual((output_tensor - output_pil).sum(), 0,
+                             "image_size: {} crop_size: {}".format(input_image_size, crop_size))
+
+            # Check if content in center of both image and cropped output is same.
+            center_size = (min(crop_size[0], input_image_size[0]), min(crop_size[1], input_image_size[1]))
+            crop_center_tl, input_center_tl = [0, 0], [0, 0]
+            for index in range(2):
+                if crop_size[index] > input_image_size[index]:
+                    crop_center_tl[index] = (crop_size[index] - input_image_size[index]) // 2
+                else:
+                    input_center_tl[index] = (input_image_size[index] - crop_size[index]) // 2
+
+            output_center = output_pil[
+                :,
+                crop_center_tl[0]:crop_center_tl[0] + center_size[0],
+                crop_center_tl[1]:crop_center_tl[1] + center_size[1]
+            ]
+
+            img_center = img[
+                :,
+                input_center_tl[0]:input_center_tl[0] + center_size[0],
+                input_center_tl[1]:input_center_tl[1] + center_size[1]
+            ]
+
+            self.assertEqual((output_center - img_center).sum(), 0,
+                             "image_size: {} crop_size: {}".format(input_image_size, crop_size))
 
     def test_five_crop(self):
         to_pil_image = transforms.ToPILImage()
@@ -560,6 +619,20 @@ class Tester(unittest.TestCase):
         img = transforms.ToPILImage()(input_data.mul(255)).convert('1')
         output = trans(img)
         self.assertTrue(np.allclose(input_data.numpy(), output.numpy()))
+
+    def test_to_tensor_with_other_default_dtypes(self):
+        current_def_dtype = torch.get_default_dtype()
+
+        t = transforms.ToTensor()
+        np_arr = np.random.randint(0, 255, (32, 32, 3), dtype=np.uint8)
+        img = Image.fromarray(np_arr)
+
+        for dtype in [torch.float16, torch.float, torch.double]:
+            torch.set_default_dtype(dtype)
+            res = t(img)
+            self.assertTrue(res.dtype == dtype, msg=f"{res.dtype} vs {dtype}")
+
+        torch.set_default_dtype(current_def_dtype)
 
     def test_max_value(self):
         for dtype in int_dtypes():
@@ -1895,6 +1968,28 @@ class Tester(unittest.TestCase):
                 for _ in range(100):
                     img = transform(img)
                 transform.__repr__()
+
+    @unittest.skipIf(stats is None, 'scipy.stats not available')
+    def test_random_erasing(self):
+        img = torch.ones(3, 128, 128)
+
+        t = transforms.RandomErasing(scale=(0.1, 0.1), ratio=(1 / 3, 3.))
+        y, x, h, w, v = t.get_params(img, t.scale, t.ratio, [t.value, ])
+        aspect_ratio = h / w
+        # Add some tolerance due to the rounding and int conversion used in the transform
+        tol = 0.05
+        self.assertTrue(1 / 3 - tol <= aspect_ratio <= 3 + tol)
+
+        aspect_ratios = []
+        random.seed(42)
+        trial = 1000
+        for _ in range(trial):
+            y, x, h, w, v = t.get_params(img, t.scale, t.ratio, [t.value, ])
+            aspect_ratios.append(h / w)
+
+        count_bigger_then_ones = len([1 for aspect_ratio in aspect_ratios if aspect_ratio > 1])
+        p_value = stats.binom_test(count_bigger_then_ones, trial, p=0.5)
+        self.assertGreater(p_value, 0.0001)
 
 
 if __name__ == '__main__':

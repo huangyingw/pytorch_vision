@@ -104,6 +104,8 @@ def to_tensor(pic):
     if _is_numpy(pic) and not _is_numpy_image(pic):
         raise ValueError('pic should be 2/3 dimensional. Got {} dimensions.'.format(pic.ndim))
 
+    default_float_dtype = torch.get_default_dtype()
+
     if isinstance(pic, np.ndarray):
         # handle numpy array
         if pic.ndim == 2:
@@ -112,12 +114,12 @@ def to_tensor(pic):
         img = torch.from_numpy(pic.transpose((2, 0, 1))).contiguous()
         # backward compatibility
         if isinstance(img, torch.ByteTensor):
-            return img.float().div(255)
+            return img.to(dtype=default_float_dtype).div(255)
         else:
             return img
 
     if accimage is not None and isinstance(pic, accimage.Image):
-        nppic = np.zeros([pic.channels, pic.height, pic.width], dtype=np.float32)
+        nppic = np.zeros([pic.channels, pic.height, pic.width], dtype=default_float_dtype)
         pic.copyto(nppic)
         return torch.from_numpy(nppic)
 
@@ -137,7 +139,7 @@ def to_tensor(pic):
     # put it from HWC to CHW format
     img = img.permute((2, 0, 1)).contiguous()
     if isinstance(img, torch.ByteTensor):
-        return img.float().div(255)
+        return img.to(dtype=default_float_dtype).div(255)
     else:
         return img
 
@@ -451,7 +453,8 @@ def crop(img: Tensor, top: int, left: int, height: int, width: int) -> Tensor:
 def center_crop(img: Tensor, output_size: List[int]) -> Tensor:
     """Crops the given image at the center.
     If the image is torch Tensor, it is expected
-    to have [..., H, W] shape, where ... means an arbitrary number of leading dimensions
+    to have [..., H, W] shape, where ... means an arbitrary number of leading dimensions.
+    If image size is smaller than output size along any edge, image is padded with 0 and then center cropped.
 
     Args:
         img (PIL Image or Tensor): Image to be cropped.
@@ -468,6 +471,18 @@ def center_crop(img: Tensor, output_size: List[int]) -> Tensor:
 
     image_width, image_height = _get_image_size(img)
     crop_height, crop_width = output_size
+
+    if crop_width > image_width or crop_height > image_height:
+        padding_ltrb = [
+            (crop_width - image_width) // 2 if crop_width > image_width else 0,
+            (crop_height - image_height) // 2 if crop_height > image_height else 0,
+            (crop_width - image_width + 1) // 2 if crop_width > image_width else 0,
+            (crop_height - image_height + 1) // 2 if crop_height > image_height else 0,
+        ]
+        img = pad(img, padding_ltrb, fill=0)  # PIL uses fill value 0
+        image_width, image_height = _get_image_size(img)
+        if crop_width == image_width and crop_height == image_height:
+            return img
 
     crop_top = int(round((image_height - crop_height) / 2.))
     crop_left = int(round((image_width - crop_width) / 2.))
