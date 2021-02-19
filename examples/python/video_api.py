@@ -65,8 +65,20 @@ video = torchvision.io.VideoReader(video_path, stream)
 video.get_metadata()
 
 # Here we can see that video has two streams - a video and an audio stream.
+# Currently available stream types include ``['video', 'audio']``.
+# Each descriptor consists of two parts: stream type (e.g. 'video') and
+# a unique stream id (which are determined by video encoding).
+# In this way, if the video contaner contains multiple
+# streams of the same type, users can acces the one they want.
+# If only stream type is passed, the decoder auto-detects first stream
+# of that type and returns it.
 #
 # Let's read all the frames from the video stream.
+# By default, the return value of `next(video_reader)` is a dict containing the following fields.
+#
+# The return fields are
+# - `data` containing a torch.tensor
+# - `pts` containing a float timestamp of this particular frame.
 
 # +
 # first we select the video stream
@@ -74,9 +86,12 @@ metadata = video.get_metadata()
 video.set_current_stream("video:0")
 
 frames = []  # we are going to save the frames here.
-for frame, pts in video:
-    frames.append(frame)
+ptss = []  # pts is a presentation timestamp in seconds (float) of each frame
+for frame in video:
+    frames.append(frame['data'])
+    ptss.append(frame['pts'])
 
+print("PTS for first five frames ", ptss[:5])
 print("Total number of frames: ", len(frames))
 approx_nf = metadata['video']['duration'][0] * metadata['video']['fps'][0]
 print("We can expect approx: ", approx_nf)
@@ -85,16 +100,19 @@ print("Tensor size: ", frames[0].size())
 
 # Note that selecting zero video stream is equivalent to selecting video stream automatically. I.e. `video:0` and `video` will end up with same results in this case.
 #
-# Let's try this for audio
+# Let's try this for audio. Note that presentation timestamps are different so aligment has to be done carefully.
 
 # +
 metadata = video.get_metadata()
 video.set_current_stream("audio")
 
 frames = []  # we are going to save the frames here.
-for frame, pts in video:
-    frames.append(frame)
+ptss = []  # pts is a presentation timestamp in seconds (float) of each frame
+for frame in video:
+    frames.append(frame['data'])
+    ptss.append(frame['pts'])
 
+print("PTS for first five frames ", ptss[:5])
 print("Total number of frames: ", len(frames))
 approx_nf = metadata['audio']['duration'][0] * metadata['audio']['framerate'][0]
 print("Approx total number of datapoints we can expect: ", approx_nf)
@@ -132,8 +150,8 @@ frames = []  # we are going to save the frames here.
 video = video.seek(2)
 # then we utilize the itertools takewhile to get the
 # correct number of frames
-for frame, pts in itertools.takewhile(lambda x: x[1] <= 5, video):
-    frames.append(frame)
+for frame in itertools.takewhile(lambda x: x['pts'] <= 5, video):
+    frames.append(frame['data'])
 
 print("Total number of frames: ", len(frames))
 approx_nf = (5 - 2) * video.get_metadata()['video']['fps'][0]
@@ -162,9 +180,9 @@ def example_read_video(video_object, start=0, end=None, read_video=True, read_au
     if read_video:
         video_object.set_current_stream("video")
         frames = []
-        for t, pts in itertools.takewhile(lambda x: x[1] <= end, video_object.seek(start)):
-            frames.append(t)
-            video_pts.append(pts)
+        for frame in itertools.takewhile(lambda x: x['pts'] <= end, video_object.seek(start)):
+            frames.append(frame['data'])
+            video_pts.append(frame['pts'])
         if len(frames) > 0:
             video_frames = torch.stack(frames, 0)
 
@@ -173,9 +191,9 @@ def example_read_video(video_object, start=0, end=None, read_video=True, read_au
     if read_audio:
         video_object.set_current_stream("audio")
         frames = []
-        for t, pts in itertools.takewhile(lambda x: x[1] <= end, video_object.seek(start)):
-            frames.append(t)
-            video_pts.append(pts)
+        for frame in itertools.takewhile(lambda x: x['pts'] <= end, video_object.seek(start)):
+            frames.append(frame['data'])
+            video_pts.append(frame['pts'])
         if len(frames) > 0:
             audio_frames = torch.cat(frames, 0)
 
@@ -275,8 +293,9 @@ class RandomDataset(torch.utils.data.IterableDataset):
 
             max_seek = metadata["video"]['duration'][0] - (self.clip_len / metadata["video"]['fps'][0])
             start = random.uniform(0., max_seek)
-            for frame, current_pts in itertools.islice(vid.seek(start), self.clip_len):
-                video_frames.append(self.frame_transform(frame))
+            for frame in itertools.islice(vid.seek(start), self.clip_len):
+                video_frames.append(self.frame_transform(frame['data']))
+                current_pts = frame['pts']
             # stack it into a tensor
             video = torch.stack(video_frames, 0)
             if self.video_transform:
@@ -325,6 +344,21 @@ for b in loader:
         d['tensorsize'].append(b['video'][i].size())
 
 d
+
+# ## Visualisation:
+#
+# example of visualsed video
+
+# +
+import matplotlib.pylab as plt
+# %matplotlib inline
+
+plt.figure(figsize=(12, 12))
+for i in range(16):
+    plt.subplot(4, 4, i + 1)
+    plt.imshow(b["video"][0, i, ...].permute(1, 2, 0))
+    plt.axis("off")
+# -
 
 # Cleanup
 import os

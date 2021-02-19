@@ -118,7 +118,7 @@ class Predictor(nn.Module):
         super().__init__()
         self.resnet18 = resnet18(pretrained=True).eval()
         self.transforms = nn.Sequential(
-            T.Resize(256),
+            T.Resize([256, ]),  # We use single int value inside a list due to torchscript type restrictions
             T.CenterCrop(224),
             T.ConvertImageDtype(torch.float),
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
