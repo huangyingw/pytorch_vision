@@ -47,17 +47,6 @@ ACCEPT = os.getenv('EXPECTTEST_ACCEPT')
 TEST_WITH_SLOW = os.getenv('PYTORCH_TEST_WITH_SLOW', '0') == '1'
 
 
-parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument('--accept', action='store_true')
-args, remaining = parser.parse_known_args()
-if not ACCEPT:
-    ACCEPT = args.accept
-for i, arg in enumerate(sys.argv):
-    if arg == '--accept':
-        del sys.argv[i]
-        break
-
-
 class MapNestedTensorObjectImpl(object):
     def __init__(self, tensor_map_fn):
         self.tensor_map_fn = tensor_map_fn
@@ -119,8 +108,9 @@ class TestCase(unittest.TestCase):
         if not ACCEPT and not os.path.exists(expected_file):
             raise RuntimeError(
                 f"No expect file exists for {os.path.basename(expected_file)} in {expected_file}; "
-                "to accept the current output, run:\n"
-                f"python {__main__.__file__} {munged_id} --accept")
+                "to accept the current output, re-run the failing test after setting the EXPECTTEST_ACCEPT "
+                "env variable. For example: EXPECTTEST_ACCEPT=1 pytest test/test_models.py -k alexnet"
+            )
 
         return expected_file
 
@@ -412,3 +402,27 @@ def call_args_to_kwargs_only(call_args, *callable_or_arg_names):
     kwargs_only = kwargs.copy()
     kwargs_only.update(dict(zip(arg_names, args)))
     return kwargs_only
+
+
+def cpu_and_gpu():
+    import pytest  # noqa
+    # ignore CPU tests in RE as they're already covered by another contbuild
+    IN_RE_WORKER = os.environ.get("INSIDE_RE_WORKER") is not None
+    IN_FBCODE = os.environ.get("IN_FBCODE_TORCHVISION") == "1"
+    CUDA_NOT_AVAILABLE_MSG = 'CUDA device not available'
+
+    devices = [] if IN_RE_WORKER else ['cpu']
+
+    if torch.cuda.is_available():
+        cuda_marks = ()
+    elif IN_FBCODE:
+        # Dont collect cuda tests on fbcode if the machine doesnt have a GPU
+        # This avoids skipping the tests. More robust would be to detect if
+        # we're in sancastle instead of fbcode?
+        cuda_marks = pytest.mark.dont_collect()
+    else:
+        cuda_marks = pytest.mark.skip(reason=CUDA_NOT_AVAILABLE_MSG)
+
+    devices.append(pytest.param('cuda', marks=cuda_marks))
+
+    return devices
