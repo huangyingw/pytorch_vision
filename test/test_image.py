@@ -9,7 +9,7 @@ import numpy as np
 import torch
 from PIL import Image
 import torchvision.transforms.functional as F
-from common_utils import get_tmp_dir, needs_cuda, cpu_only
+from common_utils import get_tmp_dir, needs_cuda
 from _assert_utils import assert_equal
 
 from torchvision.io.image import (
@@ -258,6 +258,42 @@ def test_write_file_non_ascii():
         assert content == saved_content
 
 
+@pytest.mark.parametrize('shape', [
+    (27, 27),
+    (60, 60),
+    (105, 105),
+])
+def test_read_1_bit_png(shape):
+    with get_tmp_dir() as root:
+        image_path = os.path.join(root, f'test_{shape}.png')
+        pixels = np.random.rand(*shape) > 0.5
+        img = Image.fromarray(pixels)
+        img.save(image_path)
+        img1 = read_image(image_path)
+        img2 = normalize_dimensions(torch.as_tensor(pixels * 255, dtype=torch.uint8))
+        assert_equal(img1, img2, check_stride=False)
+
+
+@pytest.mark.parametrize('shape', [
+    (27, 27),
+    (60, 60),
+    (105, 105),
+])
+@pytest.mark.parametrize('mode', [
+    ImageReadMode.UNCHANGED,
+    ImageReadMode.GRAY,
+])
+def test_read_1_bit_png_consistency(shape, mode):
+    with get_tmp_dir() as root:
+        image_path = os.path.join(root, f'test_{shape}.png')
+        pixels = np.random.rand(*shape) > 0.5
+        img = Image.fromarray(pixels)
+        img.save(image_path)
+        img1 = read_image(image_path, mode)
+        img2 = read_image(image_path, mode)
+        assert_equal(img1, img2)
+
+
 @needs_cuda
 @pytest.mark.parametrize('img_path', [
     pytest.param(jpeg_path, id=_get_safe_image_name(jpeg_path))
@@ -299,7 +335,6 @@ def test_decode_jpeg_cuda_errors():
         torch.ops.image.decode_jpeg_cuda(data, ImageReadMode.UNCHANGED.value, 'cpu')
 
 
-@cpu_only
 def test_encode_jpeg_errors():
 
     with pytest.raises(RuntimeError, match="Input tensor dtype should be uint8"):
@@ -324,7 +359,7 @@ def test_encode_jpeg_errors():
 
 
 def _collect_if(cond):
-    # TODO: remove this once test_encode_jpeg_windows and test_write_jpeg_windows
+    # TODO: remove this once test_encode_jpeg_reference and test_write_jpeg_reference
     # are removed
     def _inner(test_func):
         if cond:
@@ -334,15 +369,14 @@ def _collect_if(cond):
     return _inner
 
 
-@cpu_only
 @_collect_if(cond=IS_WINDOWS)
 @pytest.mark.parametrize('img_path', [
     pytest.param(jpeg_path, id=_get_safe_image_name(jpeg_path))
     for jpeg_path in get_images(ENCODE_JPEG, ".jpg")
 ])
-def test_encode_jpeg_windows(img_path):
+def test_encode_jpeg_reference(img_path):
     # This test is *wrong*.
-    # It compares a torchvision-encoded jpeg with a PIL-encoded jpeg, but it
+    # It compares a torchvision-encoded jpeg with a PIL-encoded jpeg (the reference), but it
     # starts encoding the torchvision version from an image that comes from
     # decode_jpeg, which can yield different results from pil.decode (see
     # test_decode... which uses a high tolerance).
@@ -367,14 +401,13 @@ def test_encode_jpeg_windows(img_path):
         assert_equal(jpeg_bytes, pil_bytes)
 
 
-@cpu_only
 @_collect_if(cond=IS_WINDOWS)
 @pytest.mark.parametrize('img_path', [
     pytest.param(jpeg_path, id=_get_safe_image_name(jpeg_path))
     for jpeg_path in get_images(ENCODE_JPEG, ".jpg")
 ])
-def test_write_jpeg_windows(img_path):
-    # FIXME: Remove this eventually, see test_encode_jpeg_windows
+def test_write_jpeg_reference(img_path):
+    # FIXME: Remove this eventually, see test_encode_jpeg_reference
     with get_tmp_dir() as d:
         data = read_file(img_path)
         img = decode_jpeg(data)
@@ -397,8 +430,9 @@ def test_write_jpeg_windows(img_path):
         assert_equal(torch_bytes, pil_bytes)
 
 
-@cpu_only
-@_collect_if(cond=not IS_WINDOWS)
+@pytest.mark.skipif(IS_WINDOWS, reason=(
+    'this test fails on windows because PIL uses libjpeg-turbo on windows'
+))
 @pytest.mark.parametrize('img_path', [
     pytest.param(jpeg_path, id=_get_safe_image_name(jpeg_path))
     for jpeg_path in get_images(ENCODE_JPEG, ".jpg")
@@ -419,8 +453,9 @@ def test_encode_jpeg(img_path):
         assert_equal(encoded_jpeg_torch, encoded_jpeg_pil)
 
 
-@cpu_only
-@_collect_if(cond=not IS_WINDOWS)
+@pytest.mark.skipif(IS_WINDOWS, reason=(
+    'this test fails on windows because PIL uses libjpeg-turbo on windows'
+))
 @pytest.mark.parametrize('img_path', [
     pytest.param(jpeg_path, id=_get_safe_image_name(jpeg_path))
     for jpeg_path in get_images(ENCODE_JPEG, ".jpg")
